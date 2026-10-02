@@ -69,6 +69,51 @@ class Transport:
 
 
 class BenchmarkTests(unittest.TestCase):
+    def local_model(self, data=b"small test weights"):
+        return {"id": "cached", "name": "cached model",
+                "url": "https://huggingface.co/example/model/resolve/pinned/model.gguf",
+                "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+    def test_download_reuses_verified_project_weight_without_network(self):
+        data = b"small test weights"
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "model.gguf").write_bytes(data)
+            with patch.object(bench.subprocess, "run", side_effect=AssertionError("must not download")), \
+                 redirect_stdout(io.StringIO()):
+                bench.download_models([self.local_model(data)], directory)
+
+    def test_hugging_face_blob_is_reused_in_place_without_download_or_copy(self):
+        data = b"small test weights"
+        model = self.local_model(data)
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = root / "hub"
+            blob = cache / "models--example--model/blobs" / model["sha256"]
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(data)
+            project_models = root / "models"
+            with patch.object(bench, "default_cache_dirs", return_value=[cache]), \
+                 patch.object(bench.subprocess, "run", side_effect=AssertionError("must not download")), \
+                 redirect_stdout(io.StringIO()):
+                self.assertEqual(bench.find_local_model(model, project_models), blob)
+                bench.download_models([model], project_models)
+            self.assertFalse((project_models / "model.gguf").exists())
+            self.assertEqual(blob.read_bytes(), data)
+
+    def test_same_filename_and_size_with_wrong_hash_is_not_reused(self):
+        data = b"correct"
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = root / "cache"
+            for name, content in (("a", b"invalid"), ("b", data)):
+                folder = cache / name
+                folder.mkdir(parents=True)
+                (folder / "model.gguf").write_bytes(content)
+            with patch.object(bench, "default_cache_dirs", return_value=[]):
+                selected = bench.find_local_model(self.local_model(data), root / "models", [cache])
+            self.assertEqual(selected, cache / "b/model.gguf")
+
     def measure(self, **transport_options):
         clock = Clock()
         transport = Transport(clock, **transport_options)
@@ -106,6 +151,22 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(summary["completed_answers"], 1)
         self.assertEqual(summary["failures_or_truncations"], 1)
         self.assertEqual(summary["median_total_seconds"], 8)
+        self.assertEqual(summary["mean_total_seconds"], 8)
+        self.assertIsNone(summary["sample_variance_total_seconds"])
+
+    def test_five_completed_times_have_sample_variance_and_keep_raw_values(self):
+        rows = [{"model_id": "m", "device": "cpu", "question_id": "q", "status": "ok", "total_seconds": value}
+                for value in (1, 2, 3, 4, 10)]
+        rows.append({"model_id": "m", "device": "cpu", "question_id": "q", "status": "truncated", "total_seconds": 100})
+        summary = bench.summarize(rows)[0]
+        self.assertEqual(summary["values_total_seconds"], [1, 2, 3, 4, 10])
+        self.assertEqual(summary["n_total_seconds"], 5)
+        self.assertEqual(summary["median_total_seconds"], 3)
+        self.assertEqual(summary["mean_total_seconds"], 4)
+        self.assertEqual(summary["variance_ddof"], 1)
+        self.assertEqual(summary["sample_variance_total_seconds"], 12.5)
+        self.assertAlmostEqual(summary["sample_stddev_total_seconds"], 12.5 ** 0.5)
+        self.assertEqual(summary["failures_or_truncations"], 1)
 
     def test_load_switch_warmup_and_erase_do_not_enter_api_measurements(self):
         clock = Clock()

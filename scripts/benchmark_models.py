@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from urllib.error import URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, ProxyHandler, build_opener
 
 # Direct URLs pinned to Hugging Face revisions. Metadata checked 2026-10-03.
@@ -108,15 +109,54 @@ def verify_model(model: dict, path: Path) -> None:
         raise ValueError(f"重みのサイズまたはSHA-256が一致しません: {path.name}")
 
 
-def download_models(models: list[dict], directory: Path) -> None:
+def default_cache_dirs() -> list[Path]:
+    """Known cache roots only; never search the whole home directory."""
+    cache_home = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+    hf_home = Path(os.environ.get("HF_HOME", str(cache_home / "huggingface")))
+    hf_cache = Path(os.environ.get("HF_HUB_CACHE", os.environ.get("HUGGINGFACE_HUB_CACHE", str(hf_home / "hub"))))
+    return [hf_cache, cache_home / "llama.cpp", Path.home() / ".lmstudio/models",
+            cache_home / "lm-studio/models"]
+
+
+def find_local_model(model: dict, directory: Path, cache_dirs: list[Path] | None = None) -> Path | None:
+    """Reuse identical weights in place, offline and before any timing."""
+    target = model_path(model, directory)
+    if target.exists():
+        verify_model(model, target)  # a corrupt project file must not be silently replaced
+        return target
+    roots = list(dict.fromkeys(Path(root).expanduser() for root in [directory] + (cache_dirs or []) + default_cache_dirs()))
+    parts = urlsplit(model["url"]).path.strip("/").split("/")
+    checked = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        candidates = []
+        if len(parts) >= 5 and parts[2] == "resolve":
+            repo = root / f"models--{parts[0]}--{parts[1]}"
+            candidates.extend([repo / "snapshots" / parts[3] / target.name,
+                               repo / "blobs" / model["sha256"]])
+        candidates.extend(sorted(root.rglob(f"*{target.name}")))
+        for path in candidates:
+            if not path.is_file() or path.resolve() in checked:
+                continue
+            checked.add(path.resolve())
+            try:
+                verify_model(model, path)
+            except ValueError:
+                continue  # same name with another quantization/revision is not equivalent
+            return path
+    return None
+
+
+def download_models(models: list[dict], directory: Path, cache_dirs: list[Path] | None = None) -> None:
     """Download separately from benchmarking, then verify the pinned file."""
     directory.mkdir(parents=True, exist_ok=True)
     for model in models:
-        path = model_path(model, directory)
-        if path.exists():
-            verify_model(model, path)
-            print(f"取得済み: {model['name']}")
+        local = find_local_model(model, directory, cache_dirs)
+        if local is not None:
+            print(f"取得済みを再利用: {model['name']} / {local}")
             continue
+        path = model_path(model, directory)
         partial = path.with_suffix(path.suffix + ".part")
         remaining = max(0, model["size_bytes"] - (partial.stat().st_size if partial.exists() else 0))
         if shutil.disk_usage(directory).free < remaining + 1024**3:
@@ -322,10 +362,15 @@ def summarize(rows: list[dict]) -> list[dict]:
         good = [row for row in group if row["status"] == "ok"]
         summary = {"model_id": model, "device": device, "question_id": question,
                    "samples": len(group), "completed_answers": len(good),
-                   "failures_or_truncations": len(group) - len(good)}
+                   "failures_or_truncations": len(group) - len(good), "variance_ddof": 1}
         for metric in ("total_seconds", "ttft_seconds", "ttfa_seconds", "generation_tokens_per_second"):
             values = [row[metric] for row in good if row.get(metric) is not None]
+            summary["values_" + metric] = values
+            summary["n_" + metric] = len(values)
             summary["median_" + metric] = statistics.median(values) if values else None
+            summary["mean_" + metric] = statistics.mean(values) if values else None
+            summary["sample_variance_" + metric] = statistics.variance(values) if len(values) >= 2 else None
+            summary["sample_stddev_" + metric] = statistics.stdev(values) if len(values) >= 2 else None
         summaries.append(summary)
     return summaries
 
@@ -337,9 +382,12 @@ def run_benchmark(models: list[dict], questions: list[dict], args: argparse.Name
         raise ValueError("Qwen3.8 xhighの測定では思考を無効にできません。--thinking auto または on を指定してください。")
     if args.devices == ["cpu"] and not args.all_cpu and not any(model["cpu_test"] for model in models):
         raise ValueError("選んだモデルのCPU測定には --all-cpu を指定してください。")
-    paths = {model["id"]: model_path(model, args.model_dir) for model in models}
+    paths = {}
     for model in models:
-        verify_model(model, paths[model["id"]])
+        path = find_local_model(model, args.model_dir, getattr(args, "cache_dir", None))
+        if path is None:
+            raise ValueError(f"重みがありません。download --models {model['id']} または --cache-dir 保存先 を指定してください。")
+        paths[model["id"]] = path
     prefix = server_prefix(args.server_bin)
     gpu, inventory = select_gpu(prefix, args.gpu_device) if "gpu" in args.devices else (None, None)
     version = subprocess.run(prefix[:1] + ["--version"], capture_output=True, text=True, timeout=30)
@@ -350,7 +398,7 @@ def run_benchmark(models: list[dict], questions: list[dict], args: argparse.Name
         "platform": {"system": platform.system(), "version": platform.mac_ver()[0] if platform.system() == "Darwin" else platform.release(), "architecture": platform.machine()},
         "runtime_version": (version.stdout + version.stderr).strip(),
         "runtime_binary_sha256": sha256_file(Path(prefix[0])), "gpu_inventory": inventory,
-        "models": models, "questions": questions, "settings": vars(args).copy(),
+        "models": models, "model_paths": paths, "questions": questions, "settings": vars(args).copy(),
         "sessions": [], "timing_scope": "HTTP送信開始からSSE [DONE]まで。準備、ロード、warmup、KV消去、停止、ファイル保存を除く。",
     }
     try:
@@ -400,13 +448,14 @@ def main() -> int:
     parser.add_argument("--devices", nargs="+", choices=("gpu", "cpu"), default=["gpu", "cpu"])
     parser.add_argument("--all-cpu", action="store_true", help="大きなモデルもCPUで計測する")
     parser.add_argument("--model-dir", type=Path, default=ROOT / "models")
+    parser.add_argument("--cache-dir", type=Path, action="append", help="取得済みGGUFの探索先を追加する（複数回指定可）")
     parser.add_argument("--output-dir", type=Path, default=ROOT / ".local/benchmarks")
     parser.add_argument("--server-bin", help="llama-server または llama 実行ファイル")
     parser.add_argument("--gpu-device", help="--list-devicesで確認したGPU名（省略時は先頭のGPU）")
     parser.add_argument("--port", type=int, default=8081)
     parser.add_argument("--context-size", type=int, default=4096)
     parser.add_argument("--threads", type=int, default=8)
-    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--max-tokens", type=int, default=512)
     parser.add_argument("--thinking", choices=("auto", "off", "on"), default="auto")
     parser.add_argument("--timeout", type=float, default=300)
@@ -425,7 +474,7 @@ def main() -> int:
         if args.action == "plan":
             print(json.dumps({"models": models, "questions": questions, "note": "planはダウンロードもモデル起動も行いません。"}, ensure_ascii=False, indent=2))
         elif args.action == "download":
-            download_models(models, args.model_dir)
+            download_models(models, args.model_dir, args.cache_dir)
         else:
             run_dir = run_benchmark(models, questions, args)
             rows = [json.loads(line) for line in (run_dir / "results.jsonl").read_text().splitlines()]
