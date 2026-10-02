@@ -4,6 +4,3 @@ alwaysApply: true
 ---
 
 このリポジトリではルートの `AGENTS.md` を作業ルールの正本とする。
-作業開始時に `AGENTS.md`、`README.md`、`docs/state.md`、`docs/project-context.md` を読む。
-現在の段階を確認し、実装済みの機能と将来の設計を区別する。
-実験結果は条件と実測を添えて `docs/research/` へ記録する。
