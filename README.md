@@ -39,20 +39,37 @@ cd local_llm
 
 ## 日本語モデルの性能テスト
 
-`scripts/benchmark_models.py` にモデルの直接ダウンロードURL、8問の日本語タスク、API応答の計測関数を用意しています。
-ロード、モデル切替、warmup、KVキャッシュ消去はAPI応答時間へ含めません。
-基本4モデルをGPU、小さい3モデルをCPUで測る構成です。Qwen3.8-27B xhighの量子化版も挑戦枠として選べます。
-各質問を5回測定し、中央値・平均・標本分散・標準偏差と各回の値を保存します。
-
 ```bash
-python3 scripts/benchmark_models.py plan
+sh benchmark.sh
 ```
 
-計画表示にはモデル取得も実行基盤も必要ありません。実際の測定にはllama.cppの導入と重みの取得が必要です。
-実行手順と計測範囲は [性能テストの設計](docs/benchmark-design.md)、候補の根拠は [モデル選定メモ](docs/research/2026-10-03-model-selection.md) を参照してください。
-計測ロジックは疑似APIで検証しています。実モデルとの結合確認と性能測定はまだ行っていません。
-現在は要約・翻訳・解説・自由創作の4分類で設計を相談中です。現行の質問リストは旧案で、設計決定後に差し替えます。
-取得済みの重みを先に探索し、内容が一致するファイルをその場所から再利用します。別の保存先は `--cache-dir` で追加できます。
+実行基盤の準備、既存重みの再利用／不足分取得、GPU／CPUの測定、結果保存まで一括で進みます。
+macOSでllama.cppがなければHomebrewで導入します。Python 3.10以上が必要で、Pythonの追加パッケージは不要です。
+準備中・ロード中・回答待ちを経過秒とともに表示し、全体の処理済み数をプログレスバーで確認できます。
+macOSでは実行中のアイドルスリープを抑止します。
+
+[Google Argonの入力JSON](benchmarks/google_argon.json) に要約・翻訳・解説・自由創作を各2問用意しています。
+文字数を一律に制限せず、各質問を5回測定し、中央値・平均・標準偏差と各回の値を保存します。
+ロード、モデル切替、warmup、KVキャッシュ消去はAPI応答時間へ含めません。
+基本4モデルをGPU、小さい3モデルをCPUで測り、280応答を予定します。
+
+```bash
+# 取得・起動せず、入力と計画を確認
+sh benchmark.sh --plan
+
+# Qwen3.8-27B xhigh / IQ2_Sも追加（計320応答）
+sh benchmark.sh --include-challenge
+
+# CPUだけで測定
+sh benchmark.sh --devices cpu
+
+# 取得済みの保存先を追加。回答本文も端末へ表示
+sh benchmark.sh --cache-dir /path/to/models --show-answers
+```
+
+結果は `.local/benchmarks/実行日時/` の `results.jsonl`、`answers.md`、`summary.json` 等へ逐次保存します。
+実行手順・計測範囲・入力の編集方法は [性能テストの設計](docs/benchmark-design.md)、候補の根拠は [モデル選定メモ](docs/research/2026-10-03-model-selection.md) を参照してください。
+計測ロジックと進捗・統計は疑似APIで検証しています。実モデルとの結合確認と性能測定はまだ行っていません。
 
 ## 目指すセットアップの流れ
 
@@ -73,6 +90,9 @@ python3 scripts/benchmark_models.py plan
 - `docs/experiment-template.md`：モデル比較の記録書式。
 - `scripts/probe_hardware.py`：識別情報を除外してPCを調べる処理。
 - `scripts/benchmark_models.py`：モデル取得、GPU／CPUのAPI測定、結果保存。
+- `benchmark.sh`：比較実験を一括実行する入口。
+- `benchmarks/google_argon.json`：入力資料、4分類8問、採点で見る点。
+- `scripts/watch_benchmark.py`：APIに触らず進捗と待機時間を表示。
 - `tests/`：計測範囲とAPIストリームの検証。
 - `.agents/skills/create-rule/`：改善したコンテキスト設計スキルの配布用コピー。
 - `.local/`：Gitに含めない調査JSON、将来の個人設定・実行ログ。
