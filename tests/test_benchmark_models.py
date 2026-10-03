@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from scripts import benchmark_models as bench
+from scripts import page_inputs
 from scripts.watch_benchmark import format_progress
 
 
@@ -52,6 +53,13 @@ class Transport:
 
     def open(self, request, timeout):
         self.requests.append(request)
+        if request.full_url.endswith('/props'):
+            self.clock.advance(20)
+            return Response(self.clock,data={'default_generation_settings':{'n_ctx':16384}})
+        if request.full_url.endswith('/apply-template'):
+            return Response(self.clock,data={'prompt':json.loads(request.data)['messages'][0]['content']})
+        if request.full_url.endswith('/tokenize'):
+            return Response(self.clock,data={'tokens':[1,2,3]})
         if "/slots/0?action=erase" in request.full_url:
             self.clock.advance(10)  # deliberately long, must not affect API times
             return Response(self.clock, data={"id_slot": 0, "n_erased": 20})
@@ -83,6 +91,17 @@ class BenchmarkTests(unittest.TestCase):
             with patch.object(bench.subprocess, "run", side_effect=AssertionError("must not download")), \
                  redirect_stdout(io.StringIO()):
                 bench.download_models([self.local_model(data)], directory)
+
+    def test_completed_partial_download_is_verified_and_promoted_without_network(self):
+        data = b"small test weights"
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "model.gguf.part").write_bytes(data)
+            with patch.object(bench.subprocess, "run", side_effect=AssertionError("must not download")), \
+                 redirect_stdout(io.StringIO()):
+                bench.download_models([self.local_model(data)], root)
+            self.assertEqual((root / "model.gguf").read_bytes(), data)
+            self.assertFalse((root / "model.gguf.part").exists())
 
     def test_hugging_face_blob_is_reused_in_place_without_download_or_copy(self):
         data = b"small test weights"
@@ -134,14 +153,18 @@ class BenchmarkTests(unittest.TestCase):
         sent = json.loads(transport.requests[0].data)
         self.assertFalse(sent["cache_prompt"])
         self.assertEqual(sent["messages"], [{"role": "user", "content": "質問です"}])
+        self.assertEqual(sent["max_tokens"], -1)
 
     def test_incomplete_stream_is_not_a_successful_fast_answer(self):
-        with self.assertRaisesRegex(ValueError, "切断"):
-            self.measure(done=False)
+        result, _ = self.measure(done=False)
+        self.assertEqual(result["status"], "disconnected")
+        self.assertEqual(result["answer"], "答えです")
+        self.assertEqual(result["reasoning"], "検討中")
 
     def test_cached_prompt_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "再利用"):
-            self.measure(cache_n=3)
+        result, _ = self.measure(cache_n=3)
+        self.assertEqual(result["status"], "error")
+        self.assertIn("再利用", result["error"])
 
     def test_truncated_response_is_saved_but_excluded_from_completed_median(self):
         short, _ = self.measure(finish="length")
@@ -201,25 +224,67 @@ class BenchmarkTests(unittest.TestCase):
             requests = [json.loads(r.data) for r in transport.requests if "/chat/completions" in r.full_url]
             self.assertEqual(len(requests), 6)  # two warmups plus four measured calls
 
+    def test_full_page_reaches_api_and_saved_suite_can_be_replayed_without_cache(self):
+        clock = Clock()
+        transport = Transport(clock)
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            html = "<html><head><title>Article</title></head><body><nav>Menu Menu</nav><p>" + "long page " * 4000 + "</p><footer>PAGE-END</footer></body></html>"
+            with patch.object(page_inputs, "fetch_html", return_value=(html.encode(), "https://example.test/page", "utf-8")):
+                page_inputs.capture_page("https://example.test/page", root / "cache")
+            suite_file = root / "suite.json"
+            suite_file.write_text(json.dumps({"material_sources": {"page": {"url": "https://example.test/page", "cache_dir": "cache"}},
+                                             "questions": [{"id": "q", "category": "要約", "material_key": "page", "instruction": "Read the full page."}]}), encoding="utf-8")
+            _, questions = bench.load_question_suite(suite_file)
+            data = b"test weights"
+            (root / "model.gguf").write_bytes(data)
+            model = {**self.local_model(data), "cpu_test": True, "thinking_switch": True}
+            @contextmanager
+            def fake_load(*args, **kwargs):
+                yield "http://127.0.0.1:1", {"offloaded_layers": 0}
+            args = argparse.Namespace(thinking="off", model_dir=root, output_dir=root / "results", questions_file=suite_file,
+                                      server_bin=None, gpu_device=None, devices=["cpu"], all_cpu=False,
+                                      port=8081, context_size=16384, threads=8, repeats=1, max_tokens=-1, timeout=300)
+            with patch.object(bench, "HTTP", transport), patch.object(bench.time, "perf_counter", lambda: clock.now), \
+                 patch.object(bench, "load_model", fake_load), patch.object(bench, "server_prefix", return_value=[sys.executable]), \
+                 redirect_stdout(io.StringIO()):
+                result_dir = bench.run_benchmark([model], questions, args)
+            sent = [json.loads(r.data) for r in transport.requests if "/chat/completions" in r.full_url][-1]
+            self.assertEqual(sent["messages"][0]["content"], questions[0]["prompt"])
+            self.assertTrue(sent["messages"][0]["content"].endswith("PAGE-END\n"))
+            self.assertEqual(sent["max_tokens"], -1)
+            (root / "cache").rename(root / "unavailable-cache")
+            _, saved_questions = bench.load_question_suite(result_dir / "input-suite.json")
+            self.assertEqual(saved_questions[0]["prompt"], questions[0]["prompt"])
+            metadata = json.loads((result_dir / "metadata.json").read_text())
+            archived = Path(metadata["question_suite"]["material_snapshots"]["page"]["run_snapshot_dir"])
+            self.assertEqual((archived / "page.html").read_text(), html)
+            self.assertTrue((archived / "page.txt").read_text().endswith("PAGE-END\n"))
+            self.assertEqual(metadata["question_suite"]["resolved_sha256"], bench.sha256_file(result_dir / "input-suite.json"))
+
     def test_gpu_fallback_is_rejected_and_own_process_is_stopped(self):
         process = Mock()
         process.poll.return_value = None
         with TemporaryDirectory() as temporary:
-            with patch.object(bench.subprocess, "Popen", return_value=process), \
+            with patch.object(bench.subprocess, "Popen", return_value=process) as popen, \
                  patch.object(bench, "api_json", side_effect=[{"status": "ok"}, {"data": [{"id": "m"}]}]):
                 with self.assertRaisesRegex(ValueError, "GPUへのレイヤー配置"):
                     with bench.load_model(["fake-server"], {"id": "m"}, Path("m.gguf"), "gpu", Path(temporary),
                                           port=0, context_size=4096, threads=8, gpu="Metal"):
                         self.fail("CPU fallback must not reach measurement")
             process.terminate.assert_called_once()
+            self.assertIn("--no-context-shift", popen.call_args.args[0])
 
-    def test_argon_inputs_are_balanced_and_source_text_reaches_the_prompt(self):
-        suite, questions = bench.load_question_suite(bench.DEFAULT_QUESTION_FILE)
+    def test_argon_inputs_are_balanced_and_all_use_the_full_page(self):
+        suite, questions = bench.load_question_suite(bench.DEFAULT_QUESTION_FILE, allow_missing_pages=True)
         self.assertEqual({category: sum(q["category"] == category for q in questions)
                           for category in ("要約", "翻訳", "解説", "自由創作")},
                          {"要約": 2, "翻訳": 2, "解説": 2, "自由創作": 2})
-        self.assertIn(suite["materials"]["overview"], questions[0]["prompt"])
-        self.assertTrue(all("120字" not in q["prompt"] and "140字" not in q["prompt"] for q in questions))
+        self.assertTrue(all(q["material_key"] == "page" for q in questions))
+        self.assertNotIn("overview", suite["materials"])
+        self.assertTrue(all("120字" not in q["instruction"] and "140字" not in q["instruction"] for q in questions))
+        if "page" in suite["materials"]:
+            self.assertTrue(all(q["prompt"].endswith(suite["materials"]["page"]) for q in questions))
 
     def test_progress_updates_stay_outside_response_timing_and_report_errors(self):
         clock = Clock()
@@ -257,10 +322,14 @@ class BenchmarkTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "results.jsonl").write_text('{"status":"ok"}\n')
+            suite_file = root / "suite.json"
+            suite_file.write_text(json.dumps({"questions": [{"id": f"q{i}", "category": "テスト", "prompt": "質問"}
+                                                          for i in range(8)]}), encoding="utf-8")
             calls = []
-            with patch.object(sys, "argv", ["benchmark_models.py", "all", "--models", "minicpm5-1b", "--devices", "cpu", "--no-progress", "--progress-file", str(root / "progress.json")]), \
+            with patch.object(sys, "argv", ["benchmark_models.py", "all", "--models", "minicpm5-1b", "--devices", "cpu", "--no-progress", "--questions-file", str(suite_file), "--progress-file", str(root / "progress.json")]), \
                  patch.object(bench.platform, "system", return_value="Linux"), \
-                 patch.object(bench, "ensure_runtime", side_effect=lambda *a: calls.append("runtime") or ["fake"]), \
+                 patch.object(bench, "ROOT", root), \
+                 patch.object(bench, "ensure_runtime", side_effect=lambda *a,**k: calls.append("runtime") or ["fake"]), \
                  patch.object(bench, "download_models", side_effect=lambda *a: calls.append("weights")), \
                  patch.object(bench, "run_benchmark", side_effect=lambda *a: calls.append("run") or root), \
                  redirect_stdout(io.StringIO()):
@@ -288,6 +357,7 @@ class BenchmarkTests(unittest.TestCase):
                                       port=8081, context_size=4096, threads=8, repeats=5, max_tokens=2048, timeout=300)
             progress = bench.ProgressReporter(10)
             with patch.object(bench, "load_model", fake_load), patch.object(bench, "clear_prompt_cache"), \
+                 patch.object(bench, "preflight_input", return_value={"input_tokens":3,"effective_context_tokens":4096,"available_output_tokens":4093}), \
                  patch.object(bench, "measure_response", return_value={"status": "ok", "total_seconds": 1, "answer": "回答"}) as measure, \
                  patch.object(bench, "server_prefix", return_value=[sys.executable]), \
                  redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -320,6 +390,15 @@ class BenchmarkTests(unittest.TestCase):
             device, recorded = bench.select_gpu(["llama-server"], None)
         self.assertEqual(device, "Metal")
         self.assertIn("Apple M1 Pro", recorded)
+
+    def test_accelerate_blas_is_not_selected_as_a_gpu(self):
+        inventory = ("Available devices:\n  BLAS: Accelerate (0 MiB, 0 MiB free)\n"
+                     "  MTL0: Apple M1 Pro (12124 MiB, 12123 MiB free)\n")
+        with patch.object(bench.subprocess, "run", return_value=Mock(stdout=inventory, stderr="")):
+            device, _ = bench.select_gpu(["llama-server"], None)
+            self.assertEqual(device, "MTL0")
+            with self.assertRaisesRegex(ValueError, "利用可能なGPU"):
+                bench.select_gpu(["llama-server"], "BLAS")
 
     def test_plan_preserves_requested_model_order_without_loading(self):
         captured = io.StringIO()

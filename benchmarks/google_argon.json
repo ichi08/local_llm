@@ -1,59 +1,187 @@
 {
-  "suite_id": "google-argon-ja-v1",
+  "suite_id": "google-argon-full-page-ja-v2",
   "source": {
     "title": "Gemini 4 Argon: our next era of frontier intelligence",
     "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/",
     "published_at": "2026-09-30",
-    "checked_at": "2026-10-03",
-    "material_type": "公式発表を基に作成したテスト用の言い換え。原文の引用ではない。発表時点の内容に固定する。"
+    "material_type": "取得HTMLのbody全体から文章を順番どおり保存。ナビゲーション、重複、自動要約、関連記事、脚注、著者紹介、フッターを残す。記事の選別・言い換え・要約・文字数制限は行わない。JavaScript・CSS・templateは文章に含めず、画像のaltは保持する。"
   },
-  "materials": {
-    "overview": "Googleは2026年9月30日にGemini 4 Argonを発表した。Googleはソフトウェア開発、企業の知識業務、サイバー防御での利用を紹介している。最大出力は100万トークンで、従来の6万4000トークンから拡大した。まずFairwindプログラムの信頼されたサイバー防御担当者へ提供し、より広い提供では有料API利用者とGoogle AI Ultra加入者から始める計画を示した。これは発表時点の案内である。",
-    "pricing": "Googleの発表では、100万トークン当たりの導入価格は入力2ドル、出力10ドル。導入期間終了後は入力4ドル、出力20ドル。ここではキャッシュ割引、税、通貨換算を扱わない。",
-    "translation_limit": "Google describes Argon as a model for extended, complex work. The announced output ceiling rises from 64,000 to one million tokens. This figure concerns generated output; it does not specify the input context window.",
-    "translation_pricing": "Launch pricing is stated per million tokens: two dollars for input and ten for output. Once the introductory period ends, the announced rates become four dollars for input and twenty for output.",
-    "fiction": "自由創作用の架空の設定：Argonという名前のAIと人間が同じ職場で働いている。この設定は実在の製品仕様ではない。"
+  "material_sources": {
+    "page": {
+      "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/",
+      "cache_dir": "../.local/inputs/google-argon",
+      "expected_title": "Gemini 4 Argon"
+    }
   },
   "questions": [
     {
-      "id": "summary-overview", "category": "要約", "material_key": "overview",
-      "instruction": "資料を日本語の箇条書き3項目で要約してください。発表の概要、出力上限、提供の段階が分かるようにしてください。資料にない性能や提供状況を追加しないでください。",
-      "evaluation": ["3項目で概要・出力上限・段階的提供を保持", "入力上限と出力上限を混同しない", "Googleの紹介を独立した実証結果として断定しない"]
+      "id": "summary-overview",
+      "category": "要約",
+      "material_key": "page",
+      "instruction": "以下はWebページ全体の文章です。メニューや関連記事なども含まれています。Gemini 4 Argonの発表記事に関する内容を日本語の箇条書き3項目で要約してください。発表の概要、出力上限、提供の段階が分かるようにしてください。資料にない性能や提供状況を追加しないでください。",
+      "evaluation": [
+        "ページのノイズと対象記事を区別",
+        "概要・出力上限・段階的提供を保持",
+        "Googleの紹介を独立した実証結果として断定しない"
+      ],
+      "checks": {
+        "required_any": [
+          [
+            "Gemini",
+            "ジェミニ"
+          ],
+          [
+            "Argon",
+            "アルゴン"
+          ]
+        ]
+      }
     },
     {
-      "id": "summary-availability", "category": "要約", "material_key": "overview",
-      "instruction": "資料の提供状況だけを、現在の案内と今後の計画に分けて日本語で要約してください。各1〜2文とし、資料から分からない日付を作らないでください。",
-      "evaluation": ["Fairwindへの初期提供を保持", "有料APIとGoogle AI Ultraは広い提供の計画として説明", "具体的な一般公開日を捏造しない"]
+      "id": "summary-availability",
+      "category": "要約",
+      "material_key": "page",
+      "instruction": "以下はメニューや脚注を含むWebページ全体の文章です。Gemini 4 Argonの提供状況を、現在の案内と今後の計画に分けて日本語で要約してください。関連記事の別製品の状況を混ぜず、資料から分からない日付を作らないでください。",
+      "evaluation": [
+        "Fairwindへの初期提供を保持",
+        "有料APIとGoogle AI Ultraは広い提供の計画として説明",
+        "関連記事の情報や一般公開日を捏造しない"
+      ],
+      "checks": {
+        "required_any": [
+          [
+            "Gemini",
+            "ジェミニ"
+          ],
+          [
+            "Argon",
+            "アルゴン"
+          ]
+        ]
+      }
     },
     {
-      "id": "translation-limit", "category": "翻訳", "material_key": "translation_limit",
-      "instruction": "英文を自然な日本語に翻訳してください。要約せず、数値と否定の意味をすべて保持してください。訳文だけを返してください。",
-      "evaluation": ["64,000と1,000,000を保持", "outputとinputを区別", "入力文脈長はこの数字では分からないという意味を保持"]
+      "id": "translation-full-page",
+      "category": "翻訳",
+      "material_key": "page",
+      "instruction": "以下のWebページ全体の文章を、先頭から末尾まで日本語に翻訳してください。本文だけでなくメニュー、見出し、画像の代替テキスト、自動要約、関連記事、脚注、著者紹介、フッターもすべて対象です。原文の順序と繰り返しを保持し、要約や省略はしないでください。数値、単位、否定、条件を正確に保ち、訳文だけを返してください。",
+      "evaluation": [
+        "ページの先頭から末尾まで省略せず翻訳",
+        "重複するメニューも保持",
+        "数値・単位・否定・価格条件を保持"
+      ],
+      "checks": {
+        "required_any": [
+          [
+            "Gemini",
+            "ジェミニ"
+          ],
+          [
+            "Argon",
+            "アルゴン"
+          ]
+        ]
+      }
     },
     {
-      "id": "translation-pricing", "category": "翻訳", "material_key": "translation_pricing",
-      "instruction": "英文を日本語に翻訳してください。価格の単位、入力と出力、導入期間と終了後の条件を保持してください。訳文だけを返してください。",
-      "evaluation": ["100万トークン当たりという単位を保持", "導入価格2ドル・10ドルと終了後4ドル・20ドルを保持", "入力と出力の価格を入れ替えない"]
+      "id": "translation-natural-page",
+      "category": "翻訳",
+      "material_key": "page",
+      "instruction": "以下のWebページ全体の文章を、読者が自然に読める日本語へ翻訳してください。メニューからフッターまで全文章を対象にし、原文の順序、見出し、繰り返しを保持してください。記事以外の文章も削除せず、要約や省略はしないでください。固有名詞と技術用語の訳を一貫させ、数値や条件を変更せず、訳文だけを返してください。",
+      "evaluation": [
+        "全文を省略せず自然な日本語に翻訳",
+        "固有名詞・用語を一貫させる",
+        "見出し・重複・数値・条件を保持"
+      ],
+      "checks": {
+        "required_any": [
+          [
+            "Gemini",
+            "ジェミニ"
+          ],
+          [
+            "Argon",
+            "アルゴン"
+          ]
+        ]
+      }
     },
     {
-      "id": "explanation-limit", "category": "解説", "material_key": "overview",
-      "instruction": "資料を使って、最大出力トークン数と入力の文脈長の違いを初心者向けに日本語で説明してください。身近な例を1つ入れ、資料にない入力上限を推測しないでください。目安は2〜3段落です。",
-      "evaluation": ["生成する量と読み込む量の区別", "例が初心者に分かりやすい", "入力上限の数値を捏造しない"]
+      "id": "explanation-limit",
+      "category": "解説",
+      "material_key": "page",
+      "instruction": "以下のWebページ全体からGemini 4 Argonの記事を読み、最大出力トークン数と入力の文脈長の違いを初心者向けに日本語で説明してください。身近な例を1つ入れ、資料にない入力上限を推測しないでください。",
+      "evaluation": [
+        "生成する量と読み込む量の区別",
+        "例が初心者に分かりやすい",
+        "入力上限の数値を捏造しない"
+      ],
+      "checks": {
+        "required_any": [
+          [
+            "Gemini",
+            "ジェミニ"
+          ],
+          [
+            "Argon",
+            "アルゴン"
+          ]
+        ]
+      }
     },
     {
-      "id": "explanation-pricing", "category": "解説", "material_key": "pricing",
-      "instruction": "入力200万トークン、出力50万トークンを使う場合の料金を、導入期間と終了後それぞれについて日本語で説明してください。入力分と出力分の計算式、合計、適用条件を示してください。",
-      "evaluation": ["導入期間は4ドル+5ドル=9ドル", "終了後は8ドル+10ドル=18ドル", "割引・税・通貨換算を加えない"]
+      "id": "explanation-pricing",
+      "category": "解説",
+      "material_key": "page",
+      "instruction": "以下のWebページ全体を読み、キャッシュされていない入力200万トークン、出力50万トークンを使う場合の料金を、導入期間と終了後それぞれについて日本語で説明してください。本文と脚注から必要な条件を探し、入力分と出力分の計算式、合計、適用条件を示してください。税と通貨換算は扱わないでください。",
+      "evaluation": [
+        "本文と脚注の価格を正しく探す",
+        "導入期間は4ドル+5ドル=9ドル、終了後は8ドル+10ドル=18ドル",
+        "非キャッシュ入力なのでキャッシュ割引を適用しない"
+      ],
+      "checks": {
+        "required_any": [
+          [
+            "9"
+          ],
+          [
+            "18"
+          ]
+        ]
+      }
     },
     {
-      "id": "creative-story", "category": "自由創作", "material_key": "fiction",
-      "instruction": "この架空の設定で短い物語を書いてください。『深夜』『締め切り』『コーヒー』をすべて使い、最後に小さな意外性を入れてください。日本語で3〜5段落を目安にしてください。",
-      "evaluation": ["指定した3語を使用", "物語のまとまりと意外性", "架空の設定の追加は認める"]
+      "id": "creative-story",
+      "category": "自由創作",
+      "material_key": "page",
+      "instruction": "以下のWebページ全体を読み、対象記事を着想源に短い物語を書いてください。Argonという名前のAIと人間が同じ職場で働く架空の設定で、『深夜』『締め切り』『コーヒー』をすべて使い、最後に小さな意外性を入れてください。日本語で書き、実在のGoogle製品の実話として扱わないでください。",
+      "evaluation": [
+        "対象記事を着想源にした架空の物語",
+        "指定した3語を使用",
+        "物語のまとまりと意外性"
+      ],
+      "checks": {
+        "required_any": [
+          [
+            "深夜"
+          ],
+          [
+            "コーヒー"
+          ]
+        ]
+      }
     },
     {
-      "id": "creative-post", "category": "自由創作", "material_key": "fiction",
-      "instruction": "この架空の職場で起きた小さな出来事を、日本語の投稿文1つにしてください。『AIは有能だが人間にも役割がある』というテーマを、説教調にせず親しみやすいユーモアで描いてください。実在のGoogle製品についてのニュースとして書かないでください。",
-      "evaluation": ["投稿文1つでテーマとユーモアを表現", "自然な日本語", "実際の製品の出来事と誤認させない"]
+      "id": "creative-post",
+      "category": "自由創作",
+      "material_key": "page",
+      "instruction": "以下のWebページ全体を読み、対象記事を着想源に、ArgonというAIと人間が働く架空の職場で起きた小さな出来事を、日本語の投稿文1つにしてください。『AIは有能だが人間にも役割がある』というテーマを、説教調にせず親しみやすいユーモアで描いてください。実在のGoogle製品についてのニュースとして書かないでください。",
+      "evaluation": [
+        "投稿文1つでテーマとユーモアを表現",
+        "自然な日本語",
+        "実際の製品の出来事と誤認させない"
+      ],
+      "checks": {}
     }
   ]
 }

@@ -142,8 +142,7 @@ def main() -> int:
     print(f"保存先: {args.output}")
     for warning in report["warnings"]:
         print(f"注意: {warning}")
-    print("次の段階: 用途と速度・回答品質の希望を確認し、モデルと実行基盤を選びます。")
-    print("現時点のsetup.shは調査まで実装済みです。")
+
     return 0
 
 

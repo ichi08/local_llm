@@ -1,0 +1,77 @@
+{
+  "suite_id": "realistic-full-pages-ja-v1",
+  "source": "日本語記事・FAQ・技術文書。原文はノイズ込みで固定する。",
+  "material_sources": {
+    "article": {
+      "url": "https://blog.google/intl/ja-jp/company-news/technology/gemini4argon/",
+      "cache_dir": "../.local/inputs/argon-ja"
+    },
+    "faq": {
+      "url": "https://www.jma.go.jp/jma/kishou/know/faq/faq3.html",
+      "cache_dir": "../.local/inputs/jma-temperature"
+    },
+    "docs": {
+      "url": "https://docs.python.org/ja/3.13/tutorial/index.html",
+      "cache_dir": "../.local/inputs/python-tutorial"
+    }
+  },
+  "questions": [
+    {
+      "id": "ja-article-summary",
+      "category": "要約",
+      "material_key": "article",
+      "instruction": "資料の日本語記事を読み、重要な発表内容と提供状況を整理してください。メニュー等は入力に含まれますが、記事の事実に基づいて回答してください。",
+      "checks": {
+        "required_any": [
+          [
+            "Gemini",
+            "ジェミニ"
+          ],
+          [
+            "Argon",
+            "アルゴン"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ja-to-en-full",
+      "category": "翻訳",
+      "material_key": "article",
+      "instruction": "資料のページ全文を英語へ翻訳してください。ナビゲーション、重複、脚注、著者、フッターも省略せず、原文の順序を保ってください。"
+    },
+    {
+      "id": "faq-explanation",
+      "category": "解説",
+      "material_key": "faq",
+      "instruction": "資料のページ全文を読み、最高・最低気温、百葉箱、フェーン現象の説明を初心者向けに整理してください。資料にない根拠を作らないでください。",
+      "checks": {
+        "required_any": [
+          [
+            "最高"
+          ],
+          [
+            "最低"
+          ],
+          [
+            "フェーン"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "technical-doc-summary",
+      "category": "要約",
+      "material_key": "docs",
+      "instruction": "資料の技術文書ページを読み、チュートリアルが対象とする読者、内容、学び方を説明してください。資料にない内容は断定しないでください。",
+      "checks": {
+        "required_any": [
+          [
+            "Python",
+            "パイソン"
+          ]
+        ]
+      }
+    }
+  ]
+}

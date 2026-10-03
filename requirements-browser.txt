@@ -1,0 +1,5 @@
+# Optional JavaScript page capture; native benchmark runner uses stdlib only.
+playwright==1.55.0
+pyee==13.0.0
+greenlet==3.2.4
+typing_extensions==4.15.0

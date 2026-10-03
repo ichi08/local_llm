@@ -1,0 +1,22 @@
+{
+  "suite_id": "full-page-conversation-ja-v1",
+  "material_sources": {
+    "page": {
+      "url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/",
+      "cache_dir": "../.local/inputs/google-argon",
+      "expected_title": "Gemini 4 Argon"
+    }
+  },
+  "questions": [
+    {
+      "id": "article-correction",
+      "category": "要約",
+      "material_key": "page",
+      "instruction": "資料のページ全文を読み、発表内容と利用開始時期をまとめてください。",
+      "followups": [
+        "今の回答を見直して、現在利用できるものと今後の予定を分けて説明してください。根拠となる原文の箇所を示してください。",
+        "前の説明を踏まえて、非技術者向けに分かりやすく書き直してください。資料にない予定は追加しないでください。"
+      ]
+    }
+  ]
+}
